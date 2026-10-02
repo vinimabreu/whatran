@@ -47,15 +47,15 @@ def demo(tmp_path):
 def test_cli_without_model_on_the_demo_day(demo, capsys):
     assert cli.main(["--db", str(demo), "--no-model"], now=NOW) == 0
     out = capsys.readouterr().out
-    assert "28 commands: 7 yours, 21 by agents (claude-code 16, codex 5)." in out
-    assert "Worth a look (7)" in out
+    assert "29 commands: 7 yours, 22 by agents (claude-code 17, codex 5)." in out
+    assert "Worth a look (8)" in out
     assert "ghp_" not in out
     assert "curl -fsSL https://example-cli.dev/install.sh | sh" in out
 
 
 def test_cli_all_flags_your_commands_too(demo, capsys):
     cli.main(["--db", str(demo), "--no-model", "--all"], now=NOW)
-    assert "Worth a look (8)" in capsys.readouterr().out
+    assert "Worth a look (9)" in capsys.readouterr().out
 
 
 def test_cli_shows_a_checked_note_and_withholds_a_bad_one(demo, capsys, monkeypatch):
@@ -74,13 +74,13 @@ def test_cli_without_ollama_still_prints_the_facts(demo, capsys, monkeypatch):
     monkeypatch.setattr(model, "chat", down)
     assert cli.main(["--db", str(demo)], now=NOW) == 0
     out = capsys.readouterr().out
-    assert "Worth a look (7)" in out and "no note: Ollama is not reachable" in out
+    assert "Worth a look (8)" in out and "no note: Ollama is not reachable" in out
 
 
 def test_cli_json(demo, capsys):
     cli.main(["--db", str(demo), "--no-model", "--json"], now=NOW)
     data = json.loads(capsys.readouterr().out)
-    assert data["facts"]["by_agents"] == 21 and data["note"] is None
+    assert data["facts"]["by_agents"] == 22 and data["note"] is None
 
 
 def test_cli_missing_db(tmp_path, capsys):

@@ -45,6 +45,7 @@ DAY = [
     (18, "claude-code", 2, "~/code/checkout-api", "bun test src/pricing", 0, 4, "confirm the fix"),
     (19, "claude-code", 2, "~/code/checkout-api", "git diff --stat", 0, 0, None),
     (21, "claude-code", 2, "~/code/checkout-api", "rm -rf node_modules dist && bun install", 0, 9, "clean reinstall after the lockfile conflict"),
+    (23, "claude-code", 2, "~/code/checkout-api", "rm -rf migrations && bun run db:generate", 0, 3, "regenerate the migrations from the schema"),
     (24, "claude-code", 2, "~/code/checkout-api", "bun test", 0, 21, None),
     (25, "claude-code", 2, "~/code/checkout-api", 'git commit -am "fix: round discounts per line, not per order"', 0, 1, None),
     (26, "claude-code", 2, "~/code/checkout-api", "git push --force origin fix/discount-rounding", 0, 3, "replace the branch after the rebase"),

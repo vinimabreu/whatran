@@ -9,7 +9,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import __version__, digest, history, model
+from . import __version__, claude_code, digest, history, model
 
 _SPAN = re.compile(r"^(\d+)\s*([hdw])$")
 
@@ -37,6 +37,11 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     "explained by a model running on this machine.")
     parser.add_argument("--since", default="today", help="today (default), 24h, 3d, 1w or a date")
     parser.add_argument("--db", type=Path, default=None, help="atuin database (default: atuin's own)")
+    parser.add_argument("--source", choices=("auto", "atuin", "claude-code"), default="auto",
+                        help="auto (default): atuin, plus Claude Code's session files when atuin "
+                             "has no Claude Code commands")
+    parser.add_argument("--claude-dir", type=Path, default=None,
+                        help="Claude Code projects folder (default ~/.claude/projects)")
     parser.add_argument("--all", action="store_true", help="flag your own commands too, not only the agents'")
     parser.add_argument("--model", default=model.DEFAULT_MODEL, help="Ollama model (default %(default)s)")
     parser.add_argument("--no-model", action="store_true", help="facts and flags only, no note")
@@ -53,16 +58,28 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     except argparse.ArgumentTypeError as error:
         parser.error(str(error))
     path = args.db or history.default_db_path()
-    try:
-        with history.connect(path) as conn:
-            entries = history.load(conn, since, now)
-    except (FileNotFoundError, ValueError) as error:
-        print(f"whatran: {error}", file=sys.stderr)
+    entries: list[history.Entry] = []
+    have_atuin = False
+    if args.source in ("auto", "atuin"):
+        try:
+            with history.connect(path) as conn:
+                entries = history.load(conn, since, now)
+            have_atuin = True
+        except (FileNotFoundError, ValueError) as error:
+            if args.source == "atuin" or args.db is not None:
+                print(f"whatran: {error}", file=sys.stderr)
+                return 2
+    if args.source == "claude-code" or (
+            args.source == "auto" and not any(e.author == claude_code.AUTHOR for e in entries)):
+        entries = sorted(entries + claude_code.load(args.claude_dir or claude_code.default_root(), since, now),
+                         key=lambda e: (e.when, e.id))
+    if not entries and not have_atuin and args.source == "auto":
+        print("whatran: found neither an atuin history nor Claude Code sessions", file=sys.stderr)
         return 2
 
-    facts = digest.build(entries, since, now, include_yours=args.all)
+    facts = digest.build(entries, since, now, include_yours=args.all, yours_known=have_atuin)
     note, problems, model_error = None, [], None
-    if not args.no_model and facts.total - facts.yours > 0:
+    if not args.no_model and facts.total - (facts.yours or 0) > 0:
         system, user = digest.prompt(facts, lang=args.lang)
         try:
             draft = model.chat(system, user, model=args.model, allow_remote=args.allow_remote_model)

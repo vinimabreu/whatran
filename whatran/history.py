@@ -37,6 +37,10 @@ class Entry:
     author: str | None
     intent: str | None
     author_kind: int | None
+    ran: bool = True
+    """False when the command was blocked or denied before it could run."""
+    project: str | None = None
+    """The folder the agent session was started in, when the source records it."""
 
     @property
     def user(self) -> str:

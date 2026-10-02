@@ -44,3 +44,12 @@ def db(tmp_path):
     def _make(rows, **kw):
         return make_db(tmp_path / "history.db", rows, **kw)
     return _make
+
+
+@pytest.fixture(autouse=True)
+def isolated_home(tmp_path_factory, monkeypatch):
+    """No test reads the real Claude Code sessions or atuin history of whoever runs it."""
+    fake = tmp_path_factory.mktemp("home")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(fake / ".claude"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(fake / "share"))
+    monkeypatch.delenv("ATUIN_DB_PATH", raising=False)
