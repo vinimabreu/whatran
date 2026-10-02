@@ -1,0 +1,89 @@
+"""Command line: ``whatran`` for today, ``whatran --since 24h`` for a window."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+from . import __version__, digest, history, model
+
+_SPAN = re.compile(r"^(\d+)\s*([hdw])$")
+
+
+def parse_since(text: str, now: datetime) -> datetime:
+    """``today``, ``24h``, ``3d``, ``1w`` or a date like ``2026-10-01``, in local time."""
+    text = text.strip().lower()
+    if text == "today":
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+    match = _SPAN.match(text)
+    if match:
+        amount, unit = int(match.group(1)), match.group(2)
+        return now - {"h": timedelta(hours=amount), "d": timedelta(days=amount),
+                      "w": timedelta(weeks=amount)}[unit]
+    try:
+        return datetime.fromisoformat(text).astimezone()
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"cannot read {text!r}; use today, 24h, 3d, 1w or 2026-10-01") from None
+
+
+def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="whatran",
+        description="What your coding agents ran in your terminal, from your atuin history, "
+                    "explained by a model running on this machine.")
+    parser.add_argument("--since", default="today", help="today (default), 24h, 3d, 1w or a date")
+    parser.add_argument("--db", type=Path, default=None, help="atuin database (default: atuin's own)")
+    parser.add_argument("--all", action="store_true", help="flag your own commands too, not only the agents'")
+    parser.add_argument("--model", default=model.DEFAULT_MODEL, help="Ollama model (default %(default)s)")
+    parser.add_argument("--no-model", action="store_true", help="facts and flags only, no note")
+    parser.add_argument("--lang", default="en", help="language of the note: en or pt (default en)")
+    parser.add_argument("--json", action="store_true", help="print the facts and the note as JSON")
+    parser.add_argument("--allow-remote-model", action="store_true",
+                        help="let OLLAMA_HOST point at another machine (off by default)")
+    parser.add_argument("--version", action="version", version=f"whatran {__version__}")
+    args = parser.parse_args(argv)
+
+    now = (now or datetime.now()).astimezone()
+    try:
+        since = parse_since(args.since, now)
+    except argparse.ArgumentTypeError as error:
+        parser.error(str(error))
+    path = args.db or history.default_db_path()
+    try:
+        with history.connect(path) as conn:
+            entries = history.load(conn, since, now)
+    except (FileNotFoundError, ValueError) as error:
+        print(f"whatran: {error}", file=sys.stderr)
+        return 2
+
+    facts = digest.build(entries, since, now, include_yours=args.all)
+    note, problems, model_error = None, [], None
+    if not args.no_model and facts.total - facts.yours > 0:
+        system, user = digest.prompt(facts, lang=args.lang)
+        try:
+            draft = model.chat(system, user, model=args.model, allow_remote=args.allow_remote_model)
+            problems = digest.check_note(draft, facts)
+            if problems:
+                feedback = user + "\n\nYour previous note had these problems; fix them:\n" + "\n".join(problems)
+                draft = model.chat(system, feedback, model=args.model, allow_remote=args.allow_remote_model)
+                problems = digest.check_note(draft, facts)
+            note = None if problems else draft
+        except model.RemoteHostRefused as error:
+            print(f"whatran: {error}", file=sys.stderr)
+            return 2
+        except model.ModelUnavailable as error:
+            model_error = str(error)
+
+    if args.json:
+        print(json.dumps({"facts": facts.as_dict(), "note": note, "note_problems": problems,
+                          "model": None if args.no_model else args.model, "model_error": model_error},
+                         ensure_ascii=False, indent=2))
+        return 0
+    print(digest.render(facts, note, model=args.model, note_problems=problems, now=now))
+    if model_error:
+        print(f"\n(no note: {model_error})")
+    return 0
