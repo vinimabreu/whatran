@@ -140,7 +140,7 @@ def test_counts_of_flags_agents_and_projects_and_flag_ranges_are_fine(db):
                            {**AGENT, "command": "git push --force", "cwd": "/Users/dev/code/blog"}])
     assert len(facts.flags) == 3
     for note in ("There are 3 flags across 2 projects from 1 agent: [F1, F2, F3].",
-                 "Three things: [F1]-[F3].", "See [F1-F3]."):
+                 "Three things: [F1]-[F3].", "See [F1-F3].", "See [F1]\u2013[F3].", "See [F1\u2013F3]."):
         assert digest.check_note(note, facts) == [], note
 
 

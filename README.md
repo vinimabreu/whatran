@@ -82,7 +82,7 @@ pip install pytest
 python -m pytest
 ```
 
-313 tests: every rule against commands that should and should not trip it, the agent detection against atuin's own rules (including its exception for a user whose name is an agent's), both readers on databases and session files written the way atuin and Claude Code write them, and the note check against notes that invent commands, numbers and flags. None of them needs Ollama.
+318 tests: every rule against commands that should and should not trip it, the agent detection against atuin's own rules (including its exception for a user whose name is an agent's), both readers on databases and session files written the way atuin and Claude Code write them, and the note check against notes that invent commands, numbers and flags. None of them needs Ollama.
 
 ## Credits
 

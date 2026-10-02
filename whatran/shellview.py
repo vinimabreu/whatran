@@ -50,6 +50,11 @@ def join_lines(command: str) -> str:
 
 
 def _base(word: str) -> str:
+    """``git`` for ``/usr/bin/git`` and ``pip`` for ``.venv/bin/pip``; a script of the
+    repository (``./crontab``, ``scripts/set``) keeps its path, so it is not taken for
+    the system program of the same name."""
+    if "/" not in word or not (word.startswith(("/", "~")) or "bin/" in word):
+        return word
     return word.rsplit("/", 1)[-1]
 
 
@@ -183,9 +188,32 @@ def blank_quotes(command: str) -> str:
     return "".join(out)
 
 
+def strip_comments(command: str) -> str:
+    """Unquoted ``# ...`` comments removed, so an apostrophe in one can't open a quote."""
+    out, i, n = [], 0, len(command)
+    while i < n:
+        ch = command[i]
+        if ch == "\\" and i + 1 < n:
+            out.append(command[i:i + 2])
+            i += 2
+            continue
+        if ch in "'\"":
+            j = _quoted_end(command, i)
+            out.append(command[i:j + 1])
+            i = j + 1
+            continue
+        if ch == "#" and (i == 0 or command[i - 1] in " \t\n;&|("):
+            nl = command.find("\n", i)
+            i = n if nl == -1 else nl
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def runnable(command: str) -> str:
     """The command with data and other-machine scripts taken out; see the module doc."""
-    return blank_quotes(strip_heredocs(join_lines(command)))
+    return blank_quotes(strip_comments(strip_heredocs(join_lines(command))))
 
 
 def split(text: str) -> list[str]:

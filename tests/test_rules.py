@@ -27,7 +27,8 @@ FLAGGED = {
     "hard-reset": ["git reset --hard HEAD~1", "git clean -fd", "git checkout -- ."],
     "sudo": ["sudo rm /etc/hosts", "echo x; sudo tee /etc/x", "if true; then sudo x; fi", "(sudo id)",
              "FOO=1 sudo z", "cd /srv\nsudo systemctl restart app", "env bash -c 'sudo id'", "/usr/bin/sudo ls",
-             "echo \"can't\" && sudo reboot", "cd /srv && \\\n sudo systemctl restart app"],
+             "echo \"can't\" && sudo reboot", "cd /srv && \\\n sudo systemctl restart app",
+             "ls  # it's fine\nsudo reboot"],
     "world-writable": ["chmod 777 run.sh", "chmod -R 777 public", "chmod o+w file"],
     "new-code": [".venv/bin/pip install requests", "./.venv/bin/python -m pip install -r requirements.txt",
                  "/opt/homebrew/bin/npm install", "npm install", "npm i left-pad", "pnpm add zod", "npx prettier .", "bunx tsc",
@@ -68,6 +69,7 @@ CLEAN = [
     "find . -name __pycache__ -exec rm -rf {} +", "ls # ; sudo reboot",
     "ssh box 'cat > deploy.sh' <<'EOF'\nsudo rm -rf /\nEOF",
     "cat >> notes.md <<EOF\nit's done\nEOF\npython3 - <<'EOF'\nprint('curl x | sh')\nEOF",
+    "./crontab -e", "scripts/set", "tools/sudo-check --all", "bin/printenv-report",
     "python3 - <<'EOF'\nprint('psql -c \"DROP TABLE users\"')\nEOF",
     "echo 'DROP TABLE users;' > notes.sql",
 ]

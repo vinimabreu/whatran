@@ -121,7 +121,7 @@ RULES: tuple[Rule, ...] = (
     _r("hard-reset", MEDIUM,
        r"^git\b.*\b(reset\s+--hard\b|clean\s+-\w*f|checkout\s+--\s+\.(\s|$)|restore\s+--source\b)",
        "throws away uncommitted work"),
-    _r("sudo", MEDIUM, r"^(sudo|doas)\b", "runs with administrator rights", scope="as-typed"),
+    _r("sudo", MEDIUM, r"^(sudo|doas)(\s|$)", "runs with administrator rights", scope="as-typed"),
     _r("world-writable", MEDIUM, r"^chmod\b.*\s(0?777|a\+w|o\+w)\b",
        "lets any user on the machine change the file"),
     _r("new-code", MEDIUM,
