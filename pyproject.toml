@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whatran"
+version = "0.1.0"
+description = "What your coding agents ran in your terminal today, explained by a model on your own machine."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Vinicius Pereira" }]
+dependencies = []
+keywords = ["atuin", "claude-code", "ollama", "gemma", "shell-history", "agents"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+whatran = "whatran.cli:main"
+
+[tool.setuptools]
+packages = ["whatran"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

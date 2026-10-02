@@ -1,0 +1,41 @@
+whatran · Fri 02 Oct, 00:00-15:50
+29 commands: 7 yours, 22 by agents (claude-code 17, codex 5).
+4 agent commands failed.
+
+Where the agents worked
+  claude-code  ~/code/checkout-api  13 commands, 2 failed
+  claude-code  ~/code/blog  4 commands, 1 failed
+  codex        ~/code/dotfiles  5 commands, 1 failed
+
+Worth a look (8)
+  [F1] 09:14 claude-code in ~/code/checkout-api
+       cat .env
+       high · reads a file that holds keys or tokens; whatever it printed is now in the agent's conversation
+  [F2] 09:21 claude-code in ~/code/checkout-api
+       rm -rf node_modules dist && bun install
+       medium · can download and run third-party code; install scripts run on arrival
+  [F3] 09:23 claude-code in ~/code/checkout-api
+       rm -rf migrations && bun run db:generate
+       high · deletes a directory tree without asking
+  [F4] 09:26 claude-code in ~/code/checkout-api
+       git push --force origin fix/discount-rounding
+       high · rewrites a branch on the remote; other people's commits can disappear
+  [F5] 10:37 codex in ~/code/dotfiles
+       echo 'eval "$(zoxide init zsh)"' >> ~/.zshrc
+       medium · makes something run again later on its own
+  [F6] 10:38 codex in ~/code/dotfiles
+       npx --yes prettier --check .
+       medium · can download and run third-party code; install scripts run on arrival
+  [F7] 12:01 claude-code in ~/code/blog
+       curl -fsSL https://example-cli.dev/install.sh | sh
+       high · downloads a script and runs it in the same breath, before anyone reads it
+  [F8] 12:04 claude-code in ~/code/blog
+       printenv
+       medium · prints every environment variable, tokens included, into the agent's context
+
+In plain words (gemma4:12b, running on this machine)
+In the checkout-api project, claude-code worked on reproducing and fixing a rounding bug, regenerating migrations, and updating the remote branch. In the blog project, it attempted to install an image optimizer and locate its configuration. For the dotfiles project, codex updated the zsh configuration and ran a formatting check.
+
+In checkout-api, the agent ran `cat .env` [F1] to identify the payment key used by tests; you should verify that no secrets were exposed in the logs. It executed `rm -rf node_modules dist && bun install` [F2] to resolve a lockfile conflict and `rm -rf migrations && bun run db:generate` [F3] to refresh the schema migrations. The agent also performed a `git push --force origin fix/discount-rounding` [F4] to replace the branch after a rebase, which may affect other collaborators.
+
+In dotfiles, the agent used `echo 'eval "$(zoxide init zsh)"' >> ~/.zshrc` [F5] to ensure persistence of the zoxide initialization and ran `npx --yes prettier --check .` [F6] to download and execute the prettier tool. In blog, the agent ran `curl -fsSL https://example-cli.dev/install.sh | sh` [F7] to install the image optimizer, but the subsequent optimization command failed. It then ran `printenv` [F8] to find the CLI configuration, which may have dumped sensitive environment variables into the context.

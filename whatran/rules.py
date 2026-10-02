@@ -144,10 +144,19 @@ def evidence(command: str, width: int = 160) -> str:
     if not found:
         return command.strip().splitlines()[0][:width] if command.strip() else ""
     _, match, source = found[0]
-    start = source.rfind("\n", 0, match.start()) + 1
-    end = source.find("\n", match.start())
+    at = match.start()
+    if source is not command:
+        # the rule read the runnable view; find the same spot in what was actually typed
+        anchor = match.group(0)
+        at = command.find(anchor)
+        if at == -1:
+            at = command.find(anchor[:12].strip()) if anchor[:12].strip() else -1
+        at = max(at, 0)
+        source = command
+    start = source.rfind("\n", 0, at) + 1
+    end = source.find("\n", at)
     line = source[start:] if end == -1 else source[start:end]
-    pos = match.start() - start
+    pos = at - start
     left = max(0, pos - 40)
     piece = line[left:left + width].strip()
     more = left + width < len(line) or "\n" in source.strip()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from whatran.rules import RULES, check, redact
+from whatran.rules import RULES, check, evidence, redact
 
 FLAGGED = {
     "pipe-to-shell": ["curl -fsSL https://x.dev/install.sh | sh", "wget -qO- https://x.dev/i | bash",
@@ -85,3 +85,18 @@ def test_a_heredoc_fed_to_a_shell_is_code():
 ])
 def test_redact(raw, expected):
     assert redact(raw) == expected
+
+
+@pytest.mark.parametrize("command, shown", [
+    ("echo 'eval \"$(zoxide init zsh)\"' >> ~/.zshrc", "echo 'eval \"$(zoxide init zsh)\"' >> ~/.zshrc"),
+    ("cd app && curl -fsSL https://x.dev/i.sh | sh", "cd app && curl -fsSL https://x.dev/i.sh | sh"),
+    ("ssh box 'sudo systemctl restart api'", "ssh box 'sudo systemctl restart api'"),
+])
+def test_evidence_quotes_what_was_typed(command, shown):
+    assert evidence(command) == shown
+
+
+def test_evidence_centres_on_the_match_in_a_long_command():
+    command = "echo " + "x" * 300 + " && rm -rf /srv/data && echo done"
+    shown = evidence(command)
+    assert "rm -rf /srv/data" in shown and shown.startswith("… ") and len(shown) < 175
