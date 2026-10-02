@@ -9,7 +9,7 @@ Coding agents run shell commands all day. Claude Code keeps every one of them in
 whatran reads that history once a day and answers three questions:
 
 1. **Where did the agents work?** Commands per agent and project, how many failed, how many were stopped before they ran.
-2. **What deserves a second look?** `curl | sh`, `rm -rf` on something that isn't a cache, `git push --force`, reading `.env` or `~/.ssh`, `sudo` here or over `ssh`, writing to your `.zshrc`, new packages arriving with install scripts.
+2. **What deserves a second look?** `curl | sh`, `rm -rf` on something that isn't a cache, `git push --force`, reading `.env` or `~/.ssh`, `sudo`, writing to your `.zshrc`, new packages arriving with install scripts. The same rules run on scripts sent to other machines over `ssh`, marked as remote.
 3. **What was the agent trying to do?** A short note in plain words, written by [Gemma 4](https://ollama.com/library/gemma4) through Ollama, on your machine.
 
 Your shell history is where tokens typed inline, database URLs with passwords and client names in paths end up. whatran never sends it anywhere: it reads the files read-only, and it refuses a model host that isn't this machine unless you pass `--allow-remote-model`.
@@ -58,9 +58,9 @@ The design is a split. Plain code counts, groups and flags; the model only write
 
 **Rules, not the model, decide what gets flagged.** Each rule in [`whatran/rules.py`](whatran/rules.py) is a regular expression with a reason a person can read, so the same command gets the same answer every day. They look at the part of a command the shell runs here ([`shellview.py`](whatran/shellview.py)): the body of a heredoc fed to Python, a commit message, or a script passed to `ssh` is not code that ran on this machine, so it is not matched as if it were. The script of `bash -c` or `eval` is, and a heredoc fed to a shell is. `rm -rf node_modules __pycache__` is not flagged; `rm -rf migrations` is.
 
-The first version skipped that step. Run on one real working day of mine (555 agent commands), it raised 64 flags, and almost all were wrong: test strings inside heredocs, `sudo` that ran on a server through `ssh`, cache cleanups. The same day now gives three groups.
+The first version skipped that step. On one real working day of mine (548 agent commands, midnight to mid-afternoon) it raised 64 flags. 21 were wrong: nine ordinary file transfers, five test strings inside quoted code, four inside heredoc bodies fed to Python or Node, three cache cleanups. Most of the other 43 were real but described wrong: `sudo` and a crontab change that ran on servers through `ssh`, reported as if they had run on my laptop. Rules now follow the script into `ssh` and say "on another machine", which also caught seven remote `sudo` calls the first version missed. Grouped, the same day reads as four entries.
 
-**Repeated flags are grouped** by agent, project and rule, so 48 `ssh` commands with `sudo` on one server read as one line with `x48`.
+**Repeated flags are grouped** by agent, project and rule, so 46 `ssh` commands with `sudo` on one server read as one line with `x46`.
 
 **The note is checked before you see it.** The model gets the facts as JSON: counts, the projects, and each flag with its intent and the commands just before and after it in the same session. Its note then has to pass [`check_note`](whatran/digest.py): every command it quotes in backticks must be in the facts, every number it uses must be stated in them, and every `[F1]` it cites must exist. If the note fails, whatran asks once more with the problems listed; if it fails again, the note is not shown and the report says why. The facts never depended on the model, so they are always there.
 
@@ -80,7 +80,7 @@ pip install pytest
 python -m pytest
 ```
 
-178 tests: every rule against commands that should and should not trip it, the agent detection against atuin's own rules (including its exception for a user whose name is an agent's), both readers on databases and session files written the way atuin and Claude Code write them, and the note check against notes that invent commands, numbers and flags. None of them needs Ollama.
+182 tests: every rule against commands that should and should not trip it, the agent detection against atuin's own rules (including its exception for a user whose name is an agent's), both readers on databases and session files written the way atuin and Claude Code write them, and the note check against notes that invent commands, numbers and flags. None of them needs Ollama.
 
 ## License
 

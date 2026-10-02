@@ -13,7 +13,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from .shellview import runnable
+from .shellview import runnable, ssh_scripts
 
 HIGH, MEDIUM = "high", "medium"
 
@@ -82,10 +82,6 @@ RULES: tuple[Rule, ...] = (
        r"\bgit\b.*\b(reset\s+--hard\b|clean\s+-\w*f|checkout\s+--\s+\.(\s|$)|restore\s+--source\b)",
        "throws away uncommitted work"),
     _r("sudo", MEDIUM, r"(^|[;&|]\s*)sudo\b", "runs with administrator rights"),
-    _r("remote-sudo", MEDIUM,
-       r"\bssh\b[^\n;&|]*?\s(['\"])(?:(?!\1).)*\bsudo\b",
-       "runs a command with administrator rights on another machine, over ssh",
-       gate=r"(^|[;&|(\s])ssh\s"),
     _r("world-writable", MEDIUM, r"\bchmod\s+(-R\s+)?(0?777|a\+w|o\+w)\b",
        "lets any user on the machine change the file"),
     _r("new-code", MEDIUM,
@@ -125,7 +121,7 @@ def check(command: str) -> list[Rule]:
     return [rule for rule, _, _ in _matches(command)]
 
 
-def _matches(command: str) -> list[tuple[Rule, re.Match[str], str]]:
+def _local(command: str) -> list[tuple[Rule, re.Match[str], str]]:
     text = runnable(command)
     found = []
     for rule in RULES:
@@ -135,7 +131,26 @@ def _matches(command: str) -> list[tuple[Rule, re.Match[str], str]]:
         match = rule.pattern.search(source)
         if match and not (rule.unless and rule.unless(match, text)):
             found.append((rule, match, source))
-    return sorted(found, key=lambda t: (t[0].severity != HIGH, RULES.index(t[0])))
+    return found
+
+
+def remote(rule: Rule) -> Rule:
+    """The same rule, for a command that ran on another machine through ``ssh``."""
+    return Rule(f"{rule.id}@remote", rule.severity, rule.pattern,
+                f"on another machine, over ssh: {rule.why}", rule.unless, rule.gate)
+
+
+def _matches(command: str) -> list[tuple[Rule, re.Match[str], str]]:
+    found = _local(command)
+    seen = {r.id for r, _, _ in found}
+    for script in ssh_scripts(command):
+        for rule, match, source in _local(script):
+            moved = remote(rule)
+            if moved.id not in seen:
+                seen.add(moved.id)
+                found.append((moved, match, source))
+    order = {r.id: i for i, r in enumerate(RULES)}
+    return sorted(found, key=lambda t: (t[0].severity != HIGH, "@" in t[0].id, order[t[0].id.split("@")[0]]))
 
 
 def evidence(command: str, width: int = 160) -> str:
@@ -145,7 +160,7 @@ def evidence(command: str, width: int = 160) -> str:
         return command.strip().splitlines()[0][:width] if command.strip() else ""
     _, match, source = found[0]
     at = match.start()
-    if source is not command:
+    if source != command:
         # the rule read the runnable view; find the same spot in what was actually typed
         anchor = match.group(0)
         at = command.find(anchor)

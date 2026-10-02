@@ -107,3 +107,15 @@ def blank_quotes(command: str) -> str:
 def runnable(command: str) -> str:
     """The command with data and other-machine scripts taken out; see the module doc."""
     return blank_quotes(strip_heredocs(command))
+
+
+_SSH = re.compile(
+    r"(?:^|[;&|(\s])ssh\s+(?:-[A-Za-z]+(?:\s+(?!-)[^\s'\"]+)?\s+)*[^\s'\"-][^\s'\"]*\s+(['\"])(.*?)(?<!\\)\1",
+    re.DOTALL)
+
+
+def ssh_scripts(command: str) -> list[str]:
+    """The scripts a command sends to other machines as ``ssh host '<script>'``."""
+    if not re.search(r"(^|[;&|(\s])ssh\s", blank_quotes(strip_heredocs(command))):
+        return []
+    return [m.group(2) for m in _SSH.finditer(strip_heredocs(command))]
