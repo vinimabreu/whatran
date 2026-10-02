@@ -89,7 +89,14 @@ def build(path: Path, day: datetime) -> int:
     return len(DAY)
 
 
+def last_finished_day(now: datetime) -> datetime:
+    """Today if the made-up day (09:00 to 12:05) is already over, otherwise yesterday."""
+    return now if now.replace(hour=12, minute=10, second=0, microsecond=0) <= now else now - timedelta(days=1)
+
+
 if __name__ == "__main__":
     target = Path(sys.argv[1] if len(sys.argv) > 1 else "demo/history.db")
-    n = build(target, datetime.now().astimezone())
-    print(f"{target}: {n} commands, today from 09:00")
+    day = last_finished_day(datetime.now().astimezone())
+    n = build(target, day)
+    print(f"{target}: {n} made-up commands on {day:%a %d %b}, 09:00 to 12:05; "
+          f"read it with: whatran --db {target} --since 24h")

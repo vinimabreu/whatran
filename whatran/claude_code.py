@@ -21,10 +21,11 @@ from pathlib import Path
 from .history import AGENT, Entry
 
 AUTHOR = "claude-code"
-_EXIT = re.compile(r"Exit code (-?\d+)")
+_EXIT = re.compile(r"^\s*(?:Error:\s*)?Exit code (-?\d+)")
 _NOT_RUN = re.compile(
-    r"Permission for this action was denied|doesn't want to proceed|tool use was rejected"
-    r"|<tool_use_error>|Blocked:|hook (blocked|denied)|was blocked by",
+    r"^\s*(?:Error:\s*)?(?:Permission for this action was denied|Permission to use \w+ with command (?s:.*?) has been denied"
+    r"|The user doesn't want to proceed|[^\n]*tool use was rejected|<tool_use_error>|Blocked:"
+    r"|[^\n]*hook (?:blocked|denied)|[^\n]*blocked by [^\n]*hook)",
     re.IGNORECASE,
 )
 
@@ -47,10 +48,13 @@ def outcome(result: dict) -> tuple[bool, int]:
     text = _text(result.get("content"))
     if not result.get("is_error"):
         return True, 0 if "running in background" not in text else -1
-    if _NOT_RUN.search(text[:400]):
+    match = _EXIT.match(text)
+    if match:
+        # it ran; whatever the output says afterwards ("blocked by Cloudflare") is output
+        return True, int(match.group(1))
+    if _NOT_RUN.match(text[:400]):
         return False, -1
-    match = _EXIT.search(text[:200])
-    return True, int(match.group(1)) if match else 1
+    return True, 1
 
 
 def _when(stamp: str) -> datetime | None:
@@ -116,4 +120,6 @@ def load(root: Path, since: datetime, until: datetime | None = None) -> list[Ent
             continue
         out.extend(e for e in read_file(path)
                    if e.when >= since and (until is None or e.when < until))
-    return sorted(out, key=lambda e: (e.when, e.id))
+    # a resumed or forked session copies earlier calls into a new file, same id and all
+    unique = {e.id: e for e in sorted(out, key=lambda e: (e.when, e.id))}
+    return sorted(unique.values(), key=lambda e: (e.when, e.id))

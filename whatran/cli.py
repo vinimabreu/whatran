@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sqlite3
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -16,16 +17,16 @@ _SPAN = re.compile(r"^(\d+)\s*([hdw])$")
 
 def parse_since(text: str, now: datetime) -> datetime:
     """``today``, ``24h``, ``3d``, ``1w`` or a date like ``2026-10-01``, in local time."""
-    text = text.strip().lower()
-    if text == "today":
+    text = text.strip()
+    if text.lower() == "today":
         return now.replace(hour=0, minute=0, second=0, microsecond=0)
-    match = _SPAN.match(text)
+    match = _SPAN.match(text.lower())
     if match:
         amount, unit = int(match.group(1)), match.group(2)
         return now - {"h": timedelta(hours=amount), "d": timedelta(days=amount),
                       "w": timedelta(weeks=amount)}[unit]
     try:
-        return datetime.fromisoformat(text).astimezone()
+        return datetime.fromisoformat(text.replace("Z", "+00:00").replace("z", "+00:00")).astimezone()
     except ValueError:
         raise argparse.ArgumentTypeError(f"cannot read {text!r}; use today, 24h, 3d, 1w or 2026-10-01") from None
 
@@ -39,7 +40,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     parser.add_argument("--db", type=Path, default=None, help="atuin database (default: atuin's own)")
     parser.add_argument("--source", choices=("auto", "atuin", "claude-code"), default="auto",
                         help="auto (default): atuin, plus Claude Code's session files when atuin "
-                             "has no Claude Code commands")
+                             "has no Claude Code commands; with --db, only that database")
     parser.add_argument("--claude-dir", type=Path, default=None,
                         help="Claude Code projects folder (default ~/.claude/projects)")
     parser.add_argument("--all", action="store_true", help="flag your own commands too, not only the agents'")
@@ -58,6 +59,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     except argparse.ArgumentTypeError as error:
         parser.error(str(error))
     path = args.db or history.default_db_path()
+    claude_root = args.claude_dir or claude_code.default_root()
     entries: list[history.Entry] = []
     have_atuin = False
     if args.source in ("auto", "atuin"):
@@ -65,17 +67,22 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             with history.connect(path) as conn:
                 entries = history.load(conn, since, now)
             have_atuin = True
-        except (FileNotFoundError, ValueError) as error:
+        except (FileNotFoundError, ValueError, sqlite3.DatabaseError) as error:
             if args.source == "atuin" or args.db is not None:
-                print(f"whatran: {error}", file=sys.stderr)
+                reason = error if not isinstance(error, sqlite3.DatabaseError) else f"{path} is not an atuin database"
+                print(f"whatran: {reason}", file=sys.stderr)
                 return 2
-    if args.source == "claude-code" or (
-            args.source == "auto" and not any(e.author == claude_code.AUTHOR for e in entries)):
-        entries = sorted(entries + claude_code.load(args.claude_dir or claude_code.default_root(), since, now),
-                         key=lambda e: (e.when, e.id))
-    if not entries and not have_atuin and args.source == "auto":
-        print("whatran: found neither an atuin history nor Claude Code sessions", file=sys.stderr)
-        return 2
+    # an explicit --db is read alone, so the demo never mixes in your real sessions
+    use_claude = args.source == "claude-code" or (
+        args.source == "auto" and args.db is None and not any(e.author == claude_code.AUTHOR for e in entries))
+    if use_claude:
+        if not claude_root.is_dir():
+            if args.source == "claude-code" or not have_atuin:
+                where = "an atuin history or " if args.source == "auto" else ""
+                print(f"whatran: found no {where}Claude Code sessions at {claude_root}", file=sys.stderr)
+                return 2
+        else:
+            entries = sorted(entries + claude_code.load(claude_root, since, now), key=lambda e: (e.when, e.id))
 
     facts = digest.build(entries, since, now, include_yours=args.all, yours_known=have_atuin)
     note, problems, model_error = None, [], None
@@ -89,10 +96,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 draft = model.chat(system, feedback, model=args.model, allow_remote=args.allow_remote_model)
                 problems = digest.check_note(draft, facts)
             note = None if problems else draft
-        except model.RemoteHostRefused as error:
-            print(f"whatran: {error}", file=sys.stderr)
-            return 2
-        except model.ModelUnavailable as error:
+        except (model.RemoteHostRefused, model.ModelUnavailable) as error:
             model_error = str(error)
 
     if args.json:

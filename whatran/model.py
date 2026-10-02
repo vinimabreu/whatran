@@ -40,13 +40,21 @@ def _base_url(host: str) -> str:
 
 
 def is_loopback(host: str) -> bool:
+    """True for this machine: localhost, 127.0.0.0/8, ::1, and 0.0.0.0 or ::, which
+    Ollama's own docs use as a listen address and which a client reaches locally."""
     name = urlsplit(_base_url(host)).hostname or ""
     if name == "localhost":
         return True
     try:
-        return ipaddress.ip_address(name).is_loopback
+        address = ipaddress.ip_address(name)
     except ValueError:
         return False
+    return address.is_loopback or address.is_unspecified
+
+
+# No proxy, ever: urllib honours http_proxy and friends, which would carry the
+# prompt to whatever the proxy is even though the host itself is local.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def chat(system: str, user: str, *, model: str = DEFAULT_MODEL, host: str = DEFAULT_HOST,
@@ -65,7 +73,7 @@ def chat(system: str, user: str, *, model: str = DEFAULT_MODEL, host: str = DEFA
     request = urllib.request.Request(_base_url(host) + "/api/chat", data=body,
                                      headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _OPENER.open(request, timeout=timeout) as response:
             payload = json.load(response)
     except urllib.error.HTTPError as error:
         detail = error.read().decode(errors="replace")

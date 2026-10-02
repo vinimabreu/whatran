@@ -114,7 +114,7 @@ def build(entries: list[Entry], start: datetime, end: datetime, *,
                 d: {
                     "commands": len(group),
                     "failed": sum(1 for e in group if e.exit not in (0, -1)),
-                    "intents": sorted({e.intent for e in group if e.intent}),
+                    "intents": sorted({rules.redact(e.intent) for e in group if e.intent}),
                     "most_run": [cmd for cmd, _ in Counter(
                         clip(rules.redact(e.command)) for e in group).most_common(MAX_SAMPLES)],
                 }
@@ -149,8 +149,8 @@ def build(entries: list[Entry], start: datetime, end: datetime, *,
             "exit": first.exit,
             "failed": sum(1 for e, _ in items if e.ran and e.exit not in (0, -1)),
             "ran": did_run,
-            "intent": first.intent,
-            "intents": list(dict.fromkeys(e.intent for e, _ in items if e.intent))[:MAX_EXAMPLES],
+            "intent": rules.redact(first.intent) if first.intent else None,
+            "intents": list(dict.fromkeys(rules.redact(e.intent) for e, _ in items if e.intent))[:MAX_EXAMPLES],
             "rules": [{"id": r.id, "severity": r.severity, "why": r.why} for r in hits],
             "before": [_step(x) for x in around[max(0, i - CONTEXT):i]],
             "after": [_step(x) for x in around[i + 1:i + 1 + CONTEXT]],
@@ -171,7 +171,8 @@ def clip(command: str, width: int = 160) -> str:
 
 
 def _step(e: Entry) -> dict:
-    step = {"command": clip(rules.redact(e.command)), "exit": e.exit, "intent": e.intent}
+    step = {"command": clip(rules.redact(e.command)), "exit": e.exit,
+            "intent": rules.redact(e.intent) if e.intent else None}
     if not e.ran:
         step["ran"] = False
     return step
@@ -195,17 +196,40 @@ def prompt(facts: Facts, *, lang: str = "en", words: int = 220) -> tuple[str, st
 
 
 _CODE = re.compile(r"`([^`\n]+)`")
-_NUMBER = re.compile(r"(?<![\w.\[/-])(\d+)(?![\w.%/:-])")
+_TIME = re.compile(r"(?<![\d:])(\d{1,2}):(\d{2})(?![\d:])")
+_NUMBER = re.compile(r"(?<![\w.\[/-])(\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(%)?(?![\w/:-])")
+
+
+def _counts(facts: Facts) -> set[int]:
+    """The numbers the facts state as counts: the only numbers a note may use."""
+    out = {facts.total, facts.total - (facts.yours or 0), facts.blocked}
+    if facts.yours is not None:
+        out.add(facts.yours)
+    for agent in facts.agents.values():
+        out.update((agent["commands"], agent["failed"]))
+        for project in agent["projects"].values():
+            out.update((project["commands"], project["failed"]))
+    for f in facts.flags:
+        out.update((f["times"], f["failed"], f["exit"]))
+        out.update(step["exit"] for step in f["before"] + f["after"])
+    return out
 
 
 def check_note(note: str, facts: Facts) -> list[str]:
-    """What in the model's note is not backed by the facts; empty means it passed."""
-    data = facts.as_dict()
-    blob = json.dumps(data, ensure_ascii=False)
+    """What in the model's note is not backed by the facts; empty means it passed.
+
+    - every command quoted in backticks must appear in the facts;
+    - every number must be one of the counts or exit codes the facts state, and
+      every clock time one of the flags' times (a year, a percentage or a time
+      read as a number does not count);
+    - every flag id it cites must exist, and every flag must be cited.
+    Numbers written as words ("two") are not checked.
+    """
     texts = [f["command"] for f in facts.flags]
     for f in facts.flags:
         texts.extend(f["other_examples"])
         texts.extend(step["command"] for step in f["before"] + f["after"])
+        texts.extend(r["id"] for r in f["rules"])
     for agent in facts.agents.values():
         for name, project in agent["projects"].items():
             texts.append(name)
@@ -216,14 +240,21 @@ def check_note(note: str, facts: Facts) -> list[str]:
         q = quoted.strip()
         if not any(q in t for t in texts):
             problems.append(f"quotes `{q}`, which no fact contains")
-    stated = {int(n) for n in re.findall(r"\d+", blob)}
     outside = _CODE.sub(" ", note)
-    for n in _NUMBER.findall(outside):
-        if int(n) not in stated:
-            problems.append(f"uses the number {n}, which no fact states")
-    ids = set(re.findall(r"\[(F\d+)\]", note))
-    unknown = ids - {f["id"] for f in facts.flags}
-    problems.extend(f"cites [{i}], which is not a flag" for i in sorted(unknown))
+    times = {t for f in facts.flags for t in (f["when"], f["last"])}
+    for hh, mm in _TIME.findall(outside):
+        if f"{int(hh):02d}:{mm}" not in times:
+            problems.append(f"gives the time {hh}:{mm}, which is not when any flag happened")
+    outside = _TIME.sub(" ", outside)
+    counts = _counts(facts)
+    for digits, percent in _NUMBER.findall(outside):
+        value = int(digits.replace(",", ""))
+        if percent or value not in counts:
+            problems.append(f"uses the number {digits}{percent}, which no fact states")
+    cited = set(re.findall(r"\[(F\d+)\]", note))
+    known = [f["id"] for f in facts.flags]
+    problems.extend(f"cites [{i}], which is not a flag" for i in sorted(cited - set(known)))
+    problems.extend(f"skips [{i}]" for i in known if i not in cited)
     return problems
 
 

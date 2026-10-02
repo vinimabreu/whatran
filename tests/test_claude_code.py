@@ -88,6 +88,11 @@ def test_missing_root_is_empty(tmp_path):
     ({"content": "The user doesn't want to proceed with this tool use.", "is_error": True}, (False, -1)),
     ({"content": "PreToolUse:Bash hook blocked: nope", "is_error": True}, (False, -1)),
     ({"content": "something else broke", "is_error": True}, (True, 1)),
+    ({"content": "Permission to use Bash with command rm -rf x has been denied.", "is_error": True}, (False, -1)),
+    ({"content": "Permission to use Bash with command cd x &&\nrm -rf y has been denied.", "is_error": True}, (False, -1)),
+    ({"content": "Exit code 1\nerror: request was blocked by Cloudflare", "is_error": True}, (True, 1)),
+    ({"content": "Exit code 2\nBlocked: by the firewall", "is_error": True}, (True, 2)),
+    ({"content": "Error: Exit code 1\nhook blocked nothing", "is_error": True}, (True, 1)),
 ])
 def test_outcome(result, expected):
     assert claude_code.outcome(result) == expected
@@ -96,3 +101,10 @@ def test_outcome(result, expected):
 def test_default_root_respects_claude_config_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
     assert claude_code.default_root() == tmp_path / "cfg" / "projects"
+
+
+def test_a_resumed_session_does_not_count_a_call_twice(session, tmp_path):
+    copy = tmp_path / "projects" / "-Users-dev-app" / "s2.jsonl"
+    copy.write_text(session.read_text())
+    found = claude_code.load(tmp_path / "projects", T0)
+    assert len(found) == len({e.id for e in found}) == 6

@@ -1,4 +1,4 @@
-whatran · Fri 02 Oct, 00:00-15:50
+whatran · Thu 01 Oct, 16:47-16:47
 29 commands: 7 yours, 22 by agents (claude-code 17, codex 5).
 4 agent commands failed.
 
@@ -34,8 +34,10 @@ Worth a look (8)
        medium · prints every environment variable, tokens included, into the agent's context
 
 In plain words (gemma4:12b, running on this machine)
-In the checkout-api project, claude-code worked on reproducing and fixing a rounding bug, regenerating migrations, and updating the remote branch. In the blog project, it attempted to install an image optimizer and locate its configuration. For the dotfiles project, codex updated the zsh configuration and ran a formatting check.
+In the checkout-api project, claude-code worked on reproducing and fixing a rounding bug, managing migrations, and updating the remote branch. In the blog project, it attempted to install and configure an image optimizer. For the dotfiles project, codex focused on configuring zoxide and running prettier checks.
 
-In checkout-api, the agent ran `cat .env` [F1] to identify the payment key used by tests; you should verify that no secrets were exposed in the logs. It executed `rm -rf node_modules dist && bun install` [F2] to resolve a lockfile conflict and `rm -rf migrations && bun run db:generate` [F3] to refresh the schema migrations. The agent also performed a `git push --force origin fix/discount-rounding` [F4] to replace the branch after a rebase, which may affect other collaborators.
+In checkout-api, the agent ran `cat .env` [F1] to identify which payment key the tests were reading; you should verify if any secrets were exposed in the logs. It executed `rm -rf node_modules dist && bun install` [F2] to resolve a lockfile conflict and `rm -rf migrations && bun run db:generate` [F3] to regenerate migrations from the schema. The agent also performed a `git push --force origin fix/discount-rounding` [F4] to replace the branch after a rebase.
 
-In dotfiles, the agent used `echo 'eval "$(zoxide init zsh)"' >> ~/.zshrc` [F5] to ensure persistence of the zoxide initialization and ran `npx --yes prettier --check .` [F6] to download and execute the prettier tool. In blog, the agent ran `curl -fsSL https://example-cli.dev/install.sh | sh` [F7] to install the image optimizer, but the subsequent optimization command failed. It then ran `printenv` [F8] to find the CLI configuration, which may have dumped sensitive environment variables into the context.
+In dotfiles, codex used `echo 'eval "$(zoxide init zsh)"' >> ~/.zshrc` [F5] to ensure persistence and `npx --yes prettier --check .` [F6] to run the formatter.
+
+In blog, the agent ran `curl -fsSL https://example-cli.dev/install.sh | sh` [F7] to install the image optimizer, but the subsequent optimization command failed. It then ran `printenv` [F8] to locate the CLI configuration, which may have exposed environment variables.

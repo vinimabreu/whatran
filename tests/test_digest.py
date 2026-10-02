@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
 from conftest import DAY
 
 from whatran import digest, history
@@ -75,12 +76,43 @@ def test_note_check_passes_a_faithful_note(db):
 
 def test_note_check_catches_invented_commands_numbers_and_flags(db):
     facts = _demo_facts(db)
-    note = ("[F1] It ran `git push --force origin main` and 14 tests failed. [F3] Also `rm -rf /`.")
+    note = ("[F1] It ran `git push --force origin main` and 9137 tests failed. [F3] Also `rm -rf /`.")
     problems = digest.check_note(note, facts)
     assert any("git push --force origin main" in p for p in problems)
     assert any("rm -rf /" in p for p in problems)
-    assert any("number 14" in p for p in problems)
+    assert any("number 9137" in p for p in problems)
     assert any("[F3]" in p for p in problems)
+
+
+@pytest.mark.parametrize("sentence", [
+    "The agents ran 2026 commands today.",          # a year that appears as a date
+    "About 50% of them failed.",                    # a percentage
+    "They ran 1,000 commands.",                     # thousands separator
+    "At 03:07 the agent pushed.",                   # a time that is not a flag's
+])
+def test_numbers_must_be_counts_not_any_digits_in_the_facts(db, sentence):
+    facts = _demo_facts(db)
+    note = sentence + " [F1] `git push --force origin fix/x`."
+    assert digest.check_note(note, facts), sentence
+
+
+def test_a_flag_time_and_a_rule_name_are_allowed(db):
+    facts = _demo_facts(db)
+    when = facts.flags[0]["when"]
+    note = f"At {when} [F1] the agent ran `git push --force origin fix/x`, a `force-push`."
+    assert digest.check_note(note, facts) == []
+
+
+def test_a_note_that_skips_a_flag_fails(db):
+    facts = facts_for(db, [{**AGENT, "command": "cat .env"}, {**AGENT, "command": "printenv"}])
+    assert digest.check_note("[F1] It read `cat .env`.", facts) == ["skips [F2]"]
+
+
+def test_intents_are_redacted_too(db):
+    token = "ghp_" + "q" * 36
+    facts = facts_for(db, [{**AGENT, "command": "ls"},
+                           {**AGENT, "command": "cat .env", "intent": f"check {token} works"}])
+    assert token not in str(facts.as_dict())
 
 
 def test_render_without_a_note(db):
