@@ -90,6 +90,7 @@ def test_missing_root_is_empty(tmp_path):
     ({"content": "something else broke", "is_error": True}, (True, 1)),
     ({"content": "Permission to use Bash with command rm -rf x has been denied.", "is_error": True}, (False, -1)),
     ({"content": "Permission to use Bash with command cd x &&\nrm -rf y has been denied.", "is_error": True}, (False, -1)),
+    ({"content": "Permission to use Bash with command " + "x" * 1000 + " has been denied.", "is_error": True}, (False, -1)),
     ({"content": "Exit code 1\nerror: request was blocked by Cloudflare", "is_error": True}, (True, 1)),
     ({"content": "Exit code 2\nBlocked: by the firewall", "is_error": True}, (True, 2)),
     ({"content": "Error: Exit code 1\nhook blocked nothing", "is_error": True}, (True, 1)),

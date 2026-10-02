@@ -52,7 +52,7 @@ def outcome(result: dict) -> tuple[bool, int]:
     if match:
         # it ran; whatever the output says afterwards ("blocked by Cloudflare") is output
         return True, int(match.group(1))
-    if _NOT_RUN.match(text[:400]):
+    if _NOT_RUN.match(text):
         return False, -1
     return True, 1
 

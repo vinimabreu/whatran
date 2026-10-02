@@ -202,11 +202,12 @@ _NUMBER = re.compile(r"(?<![\w.\[/-])(\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(%)?(?![\
 
 def _counts(facts: Facts) -> set[int]:
     """The numbers the facts state as counts: the only numbers a note may use."""
-    out = {facts.total, facts.total - (facts.yours or 0), facts.blocked}
+    out = {facts.total, facts.total - (facts.yours or 0), facts.blocked, len(facts.flags), len(facts.agents),
+           sum(len(a["projects"]) for a in facts.agents.values())}
     if facts.yours is not None:
         out.add(facts.yours)
     for agent in facts.agents.values():
-        out.update((agent["commands"], agent["failed"]))
+        out.update((agent["commands"], agent["failed"], len(agent["projects"])))
         for project in agent["projects"].values():
             out.update((project["commands"], project["failed"]))
     for f in facts.flags:
@@ -251,7 +252,13 @@ def check_note(note: str, facts: Facts) -> list[str]:
         value = int(digits.replace(",", ""))
         if percent or value not in counts:
             problems.append(f"uses the number {digits}{percent}, which no fact states")
-    cited = set(re.findall(r"\[(F\d+)\]", note))
+    cited = set()
+    for group in re.findall(r"\[(F\d+(?:\s*(?:,|-|\u2013|to)\s*F?\d+)*)\]", note):
+        # [F1], [F1, F2], [F1-F3]
+        for a, b in re.findall(r"F?(\d+)(?:\s*(?:-|\u2013|to)\s*F?(\d+))?", group):
+            cited.update(f"F{n}" for n in range(int(a), int(b or a) + 1))
+    for a, b in re.findall(r"\[F(\d+)\]\s*(?:-|\u2013|to)\s*\[F(\d+)\]", note):
+        cited.update(f"F{n}" for n in range(int(a), int(b) + 1))
     known = [f["id"] for f in facts.flags]
     problems.extend(f"cites [{i}], which is not a flag" for i in sorted(cited - set(known)))
     problems.extend(f"skips [{i}]" for i in known if i not in cited)
@@ -262,7 +269,10 @@ def render(facts: Facts, note: str | None, *, model: str | None = None,
            note_problems: list[str] | None = None, now: datetime | None = None) -> str:
     start = facts.start.astimezone()
     end = (now or facts.end).astimezone()
-    lines = [f"whatran · {start:%a %d %b}, {start:%H:%M}-{end:%H:%M}"]
+    if start.date() == end.date():
+        lines = [f"whatran · {start:%a %d %b}, {start:%H:%M}-{end:%H:%M}"]
+    else:
+        lines = [f"whatran · {start:%a %d %b %H:%M} to {end:%a %d %b %H:%M}"]
     by = ", ".join(f"{name} {a['commands']}" for name, a in facts.agents.items())
     failed = sum(a["failed"] for a in facts.agents.values())
     agent_total = facts.total - (facts.yours or 0)

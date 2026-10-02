@@ -99,4 +99,4 @@ if __name__ == "__main__":
     day = last_finished_day(datetime.now().astimezone())
     n = build(target, day)
     print(f"{target}: {n} made-up commands on {day:%a %d %b}, 09:00 to 12:05; "
-          f"read it with: whatran --db {target} --since 24h")
+          f"read it with: whatran --db {target} --since 2d")

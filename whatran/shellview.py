@@ -40,6 +40,17 @@ _WRAPPERS = {"sudo", "doas", "env", "timeout", "nice", "nohup", "caffeinate", "t
 class Heredoc:
     program: str
     body: str
+    head: str
+    """The simple command the heredoc is fed to, as typed."""
+
+
+def join_lines(command: str) -> str:
+    """Backslash-newline continuations joined, as the shell joins them."""
+    return command.replace("\\\n", " ")
+
+
+def _base(word: str) -> str:
+    return word.rsplit("/", 1)[-1]
 
 
 def _program(words: list[str]) -> str:
@@ -49,22 +60,47 @@ def _program(words: list[str]) -> str:
         w = words[i]
         if w in _KEYWORDS or _ASSIGN.match(w):
             i += 1
-        elif w in _WRAPPERS:
+        elif _base(w) in _WRAPPERS:
             i += 1
             while i < len(words) and (words[i].startswith("-") or _ASSIGN.match(words[i])):
                 i += 2 if words[i] in {"-u", "-g", "-C", "-h", "-n", "-s", "-k"} else 1
             if w == "timeout" and i < len(words):
                 i += 1
         else:
-            return w.rsplit("/", 1)[-1]
+            return _base(w)
     return ""
 
 
-def _heredocs(command: str) -> tuple[str, list[Heredoc]]:
-    """The command without heredoc bodies, and the bodies with the program fed by each."""
+def _open_quote(segment: str) -> bool:
+    """True when ``segment`` ends inside a quoted string."""
+    i, n = 0, len(segment)
+    while i < n:
+        ch = segment[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if ch in "'\"":
+            j = _quoted_end(segment, i)
+            if j >= n:
+                return True
+            i = j + 1
+            continue
+        i += 1
+    return False
+
+
+def heredocs(command: str) -> tuple[str, list[Heredoc]]:
+    """The command without heredoc bodies, and the bodies with the program fed by each.
+
+    A ``<<`` inside quotes is text (often a heredoc in a script sent to ``ssh``), not a
+    heredoc of this shell, and is left alone.
+    """
     out, docs, i = [], [], 0
     while True:
         match = _HEREDOC.search(command, i)
+        # quote state counts from where the last heredoc ended: its body was data
+        while match and _open_quote(command[i:match.start()]):
+            match = _HEREDOC.search(command, match.end())
         line_end = command.find("\n", match.end()) if match else -1
         if not match or line_end == -1:
             out.append(command[i:])
@@ -86,7 +122,7 @@ def _heredocs(command: str) -> tuple[str, list[Heredoc]]:
         head = command[:match.start()]
         segment = re.split(r"(?:\|\||&&|[;|&\n])", head)[-1]
         program = _program(segment.split())
-        docs.append(Heredoc(program, command[line_end + 1:body_end]))
+        docs.append(Heredoc(program, command[line_end + 1:body_end], segment.strip()))
         out.append(command[i:line_end + 1])
         if program in SHELLS or _PIPED_TO_SHELL.search(command[match.end():line_end]):
             out.append(command[line_end + 1:body_end])
@@ -94,13 +130,16 @@ def _heredocs(command: str) -> tuple[str, list[Heredoc]]:
 
 
 def strip_heredocs(command: str) -> str:
-    return _heredocs(command)[0]
+    return heredocs(command)[0]
 
 
 def _is_script_slot(before: str) -> bool:
     tail = before.rstrip().split()[-4:]
     if not tail:
         return False
+    segment = re.split(r"(?:\|\||&&|[;|&\n])", before)[-1]
+    if _program(segment.split()) == "ssh":
+        return False  # a script for another machine, not for this shell
     if tail[-1] == "eval":
         return True
     return bool(re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", tail[-1])) and any(
@@ -129,10 +168,12 @@ def blank_quotes(command: str) -> str:
         if ch in "'\"":
             j = _quoted_end(command, i)
             inner = command[i + 1:j]
-            if _is_script_slot("".join(out[-80:])):
+            if _is_script_slot("".join(out[-400:])):
                 out.append(" ; " + blank_quotes(inner) + " ; ")
             elif re.search(r"\s", inner):
                 out.append(ch + ch)
+            elif re.search(r"['\"\\]", inner):
+                out.append(ch + inner + ch)  # "can't": keep the quotes so the apostrophe stays inside
             else:
                 out.append(inner)
             i = j + 1
@@ -144,7 +185,7 @@ def blank_quotes(command: str) -> str:
 
 def runnable(command: str) -> str:
     """The command with data and other-machine scripts taken out; see the module doc."""
-    return blank_quotes(strip_heredocs(command))
+    return blank_quotes(strip_heredocs(join_lines(command)))
 
 
 def split(text: str) -> list[str]:
@@ -160,6 +201,10 @@ def split(text: str) -> list[str]:
             j = _quoted_end(text, i)
             cur.append(text[i:j + 1])
             i = j + 1
+            continue
+        if ch == "#" and (i == 0 or text[i - 1] in " \t\n;&|("):
+            nl = text.find("\n", i)
+            i = n if nl == -1 else nl  # a comment runs to the end of the line
             continue
         two = text[i:i + 2]
         if two in ("&&", "||"):
@@ -206,7 +251,9 @@ def strip_prefix(simple: str) -> str:
     while words and (words[0] in _KEYWORDS or _ASSIGN.match(words[0])):
         words = words[1:]
     rest = " ".join(words)
-    return rest.lstrip("({ ").rstrip(")} ") if rest.startswith(("(", "{")) else rest
+    rest = rest.lstrip("({ ").rstrip(")} ") if rest.startswith(("(", "{")) else rest
+    head, sep, tail = rest.partition(" ")
+    return _base(head) + sep + tail  # /usr/bin/git and .venv/bin/pip are git and pip
 
 
 def strip_sudo(simple: str) -> str:
@@ -249,46 +296,71 @@ def _remote_script(words: list[str]) -> str | None:
             skip = w in {"<", ">", ">>", "<<", "<<<", "2>", "2>>", "&>"}
             continue
         rest.append(w)
-    return " ".join(rest) if rest else None
+    if not rest:
+        return None
+    # one word is the script as the remote shell receives it; several words are joined
+    # by ssh with spaces, so quoting is kept to let `bash -c "sudo ls"` stay a -c script
+    return rest[0] if len(rest) == 1 else shlex.join(rest)
 
 
 def _unwrap(words: list[str]) -> list[str]:
     """Words without leading keywords, assignments, and ``sudo``/``env`` with their options."""
     while words and (words[0] in _KEYWORDS or _ASSIGN.match(words[0])):
         words = words[1:]
-    while words and words[0] in _WRAPPERS:
-        wrapper, words = words[0], words[1:]
+    while words and _base(words[0]) in _WRAPPERS:
+        wrapper, words = _base(words[0]), words[1:]
         while words and (words[0].startswith("-") or _ASSIGN.match(words[0])):
             words = words[2:] if words[0] in {"-u", "-g", "-C", "-h", "-n", "-s", "-k"} else words[1:]
         if wrapper == "timeout" and words:
             words = words[1:]
+    if words:
+        words = [_base(words[0]), *words[1:]]
     return words
+
+
+_READS_STDIN_AS_SCRIPT = {"", "bash", "sh", "zsh", "bash -s", "sh -s", "zsh -s", "bash -l", "sudo bash", "sudo bash -s",
+                          "sudo sh", "sudo sh -s"}
+
+
+def _ssh_words(part: str) -> list[str] | None:
+    try:
+        words = _unwrap(shlex.split(part, comments=True, posix=True))
+    except ValueError:
+        return None
+    return words if words and words[0] == "ssh" else None
 
 
 def ssh_scripts(command: str) -> list[str]:
     """The scripts a command sends to other machines over ``ssh``.
 
     Covers ``ssh host '<script>'``, ``ssh host cmd args``, ``ssh -p2222 host -- ...``
-    and a heredoc fed to ``ssh`` (``ssh host 'bash -s' <<EOF``, ``ssh host <<EOF``).
+    and a heredoc fed to ``ssh``: ``ssh host <<EOF`` and ``ssh host 'bash -s' <<EOF`` run
+    the body as a script; ``ssh host 'cat > f' <<EOF`` or ``ssh host psql <<EOF`` hand the
+    body to that remote program, which is what the rules then see.
     """
-    text, docs = _heredocs(command)
-    scripts = [d.body for d in docs if d.program == "ssh"]
+    command = join_lines(command)
+    text, docs = heredocs(command)
+    scripts = []
+    for doc in docs:
+        words = _ssh_words(doc.head.split("<<", 1)[0])
+        if words is None:
+            continue
+        remote = _remote_script(words) or ""
+        if remote in _READS_STDIN_AS_SCRIPT:
+            scripts.append(doc.body)
+        else:
+            scripts.append(f"{remote} <<'WHATRAN_EOF'\n{doc.body}WHATRAN_EOF")
     for pipeline in split(text):
         for part in pipe_parts(pipeline):
-            try:
-                words = shlex.split(part, comments=False, posix=True)
-            except ValueError:
-                continue
-            words = _unwrap(words)
-            if not words or words[0].rsplit("/", 1)[-1] != "ssh":
-                continue
-            script = _remote_script(words)
-            if script and not (script in ("bash -s", "sh -s", "bash", "sh") and any(
-                    d.program == "ssh" for d in docs)):
+            if "<<" in blank_quotes(part):
+                continue  # a heredoc of this shell, fed to ssh: handled above
+            words = _ssh_words(part)
+            script = _remote_script(words) if words else None
+            if script:
                 scripts.append(script)
     return scripts
 
 
 def is_ssh(simple: str) -> bool:
-    words = strip_sudo(simple).split()
+    words = strip_sudo(strip_prefix(simple)).split()
     return bool(words) and words[0].rsplit("/", 1)[-1] == "ssh"

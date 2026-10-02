@@ -49,7 +49,7 @@ To try it without your own history, there is a made-up day:
 
 ```sh
 python3 examples/make_demo.py demo/history.db
-whatran --db demo/history.db --since 24h
+whatran --db demo/history.db --since 2d
 ```
 
 With `--db`, whatran reads only that file, so the demo never mixes in your own sessions.
@@ -60,7 +60,7 @@ The design is a split. Plain code counts, groups and flags; the model only write
 
 **Rules, not the model, decide what gets flagged.** Each rule in [`whatran/rules.py`](whatran/rules.py) is a regular expression with a reason a person can read, so the same command gets the same answer every day. They read one simple command at a time, from the part of the text the shell runs ([`shellview.py`](whatran/shellview.py)): the body of a heredoc fed to Python or a commit message is data, so it is not matched; the script of `bash -c` or `eval`, and a heredoc fed to a shell, are code, so they are. A script sent with `ssh` (quoted, unquoted, or as a heredoc) goes through the same rules and comes back marked as remote. `rm -rf node_modules __pycache__` is not flagged; `rm -rf node_modules && rm -rf migrations` is.
 
-The first version skipped that step. On one real working day of mine (548 agent commands, midnight to mid-afternoon) it raised 64 flags. 21 were wrong: nine ordinary file transfers, five test strings inside quoted code, four inside heredoc bodies fed to Python or Node, three cache cleanups. 41 of the other 43 ran on servers inside an `ssh` command, `sudo` calls and one crontab change, and the first version either called them local `sudo` or filed them as file transfers. Rules now follow the script into `ssh` and say "on another machine", which also caught seven remote `sudo` calls the first version missed. Grouped, the same day reads as four entries.
+The first version skipped that step. On one real working day of mine (548 agent commands, midnight to mid-afternoon) it raised 64 flags. 21 were wrong: nine ordinary file transfers, five test strings inside quoted code, four inside heredoc bodies fed to Python or Node, three cache cleanups. 41 of the other 43 ran on servers inside an `ssh` command, `sudo` calls and one crontab change, and the first version reported them as if they had happened on my laptop: as local `sudo`, as a local crontab change, or as plain file transfers. Rules now follow the script into `ssh` and say "on another machine", which also caught seven remote `sudo` calls the first version missed. Grouped, the same day reads as four entries.
 
 **Repeated flags are grouped** by agent, project and rule, so 46 `ssh` commands with `sudo` on one server read as one line with `x46`.
 
@@ -82,7 +82,7 @@ pip install pytest
 python -m pytest
 ```
 
-276 tests: every rule against commands that should and should not trip it, the agent detection against atuin's own rules (including its exception for a user whose name is an agent's), both readers on databases and session files written the way atuin and Claude Code write them, and the note check against notes that invent commands, numbers and flags. None of them needs Ollama.
+313 tests: every rule against commands that should and should not trip it, the agent detection against atuin's own rules (including its exception for a user whose name is an agent's), both readers on databases and session files written the way atuin and Claude Code write them, and the note check against notes that invent commands, numbers and flags. None of them needs Ollama.
 
 ## Credits
 

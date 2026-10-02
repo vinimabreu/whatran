@@ -181,3 +181,13 @@ def test_demo_day_is_always_already_over():
     afternoon = datetime(2026, 10, 2, 15, 0).astimezone()
     assert make_demo.last_finished_day(morning).day == 1
     assert make_demo.last_finished_day(afternoon).day == 2
+
+
+@pytest.mark.parametrize("hour, minute", [(0, 30), (9, 30), (11, 30), (12, 6), (12, 11), (18, 0)])
+def test_the_readme_demo_command_shows_the_whole_day_at_any_hour(tmp_path, capsys, hour, minute):
+    now = datetime(2026, 10, 2, hour, minute).astimezone()
+    path = tmp_path / "history.db"
+    make_demo.build(path, make_demo.last_finished_day(now))
+    cli.main(["--db", str(path), "--since", "2d", "--no-model"], now=now)
+    out = capsys.readouterr().out
+    assert "22 by agents" in out and "Worth a look (8)" in out

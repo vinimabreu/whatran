@@ -13,7 +13,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from .shellview import commands, is_ssh, runnable, ssh_scripts, strip_sudo
+from .shellview import commands, heredocs, is_ssh, join_lines, pipe_parts, runnable, split, ssh_scripts, strip_sudo
 
 HIGH, MEDIUM = "high", "medium"
 
@@ -48,7 +48,16 @@ _REDIRECT = re.compile(r"^(\d*|&)(>>?|<)")
 
 
 def _only_regenerable(match: re.Match[str], command: str) -> bool:
-    """True when every path the ``rm`` names is a cache or build output that rebuilds itself."""
+    """True when every path the ``rm`` names is a cache or build output that rebuilds itself.
+
+    For ``find ... -exec rm -rf {}`` that means every ``-name`` is one; ``xargs rm -rf``
+    names nothing, so it never counts as a cleanup.
+    """
+    if command.startswith("find "):
+        names = [n.strip("'\"") for n in re.findall(r"-i?name\s+(\S+)", command)]
+        return bool(names) and all(n in REGENERABLE for n in names)
+    if command.startswith("xargs"):
+        return False
     words = command[match.end():].split()
     targets, skip = [], False
     for w in words:
@@ -92,7 +101,8 @@ RULES: tuple[Rule, ...] = (
        r"|\b((ba|z|da|k)?sh\s+-[a-z]*c|eval)\s*;\s*\$\(\s*(curl|wget)\b",
        "downloads a script and runs it in the same breath, before anyone reads it", scope="line"),
     _r("recursive-delete", HIGH,
-       r"^rm\s+(-\w*r\w*f\w*|-\w*f\w*r\w*|-r\s+-f|-f\s+-r|--recursive\s+--force|--force\s+--recursive)\b",
+       r"^(find\b.*\s-exec(dir)?\s+|xargs\s+(-\S+\s+)*)?(\S*/)?rm\s+"
+       r"(-\w*r\w*f\w*|-\w*f\w*r\w*|-r\s+-f|-f\s+-r|--recursive\s+--force|--force\s+--recursive)\b",
        "deletes a directory tree without asking", unless=_only_regenerable),
     _r("force-push", HIGH,
        r"^git\b.*\bpush\b.*(\s--force(?!-with-lease)\b|\s-f\b|\s\+[\w/.-]+)",
@@ -131,7 +141,7 @@ RULES: tuple[Rule, ...] = (
     _r("db-destructive", MEDIUM,
        r"\b(drop\s+(table|database|schema)|truncate\s+table)\b|\bdelete\s+from\s+\w+\s*(;|$|['\"])",
        "deletes database data with no WHERE to limit it", scope="raw",
-       gate=r"^(psql|mysql|mariadb|sqlite3|duckdb|mongosh|clickhouse-client|cockroach|supabase\s+db)\b"),
+       gate=r"^(psql|mysql|mariadb|sqlite3|duckdb|mongosh|clickhouse-client|cockroach|supabase)$"),
 )
 
 
@@ -156,9 +166,7 @@ def _local(command: str) -> list[tuple[Rule, re.Match[str], str]]:
             m = rule.pattern.search(text)
             hit = (m, text) if m else None
         elif rule.scope == "raw":
-            if any(rule.gate.search(strip_sudo(c)) for c in simple):
-                m = rule.pattern.search(command)
-                hit = (m, command) if m else None
+            hit = _raw_hit(rule, command)
         else:
             for c in simple:
                 view = c if rule.scope == "as-typed" else strip_sudo(c)
@@ -169,6 +177,27 @@ def _local(command: str) -> list[tuple[Rule, re.Match[str], str]]:
         if hit:
             found.append((rule, hit[0], hit[1]))
     return found
+
+
+def _raw_hit(rule: Rule, command: str) -> tuple[re.Match[str], str] | None:
+    """A ``raw`` rule reads, quotes included, only the simple commands that run one of its
+    programs (``psql``, or ``docker exec db psql``), plus the heredocs fed to them."""
+    def runs_gated(segment: str) -> bool:
+        return any(rule.gate.search(w.strip("'\"").rsplit("/", 1)[-1]) for w in segment.split())
+
+    text, docs = heredocs(join_lines(command))
+    for pipeline in split(text):
+        for part in pipe_parts(pipeline):
+            if not is_ssh(part) and runs_gated(part.split("<<", 1)[0]):
+                m = rule.pattern.search(part)
+                if m:
+                    return m, part
+    for doc in docs:
+        if doc.program != "ssh" and runs_gated(doc.head.split("<<", 1)[0]):
+            m = rule.pattern.search(doc.body)
+            if m:
+                return m, doc.body
+    return None
 
 
 def remote(rule: Rule) -> Rule:

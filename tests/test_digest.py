@@ -133,3 +133,33 @@ def test_short_dir():
     assert digest.short_dir("/Users/dev", home="/Users/dev") == "~"
     assert digest.short_dir("/home/ana/x", home="/Users/dev") == "~/x"
     assert digest.short_dir("/srv/app", home="/Users/dev") == "/srv/app"
+
+
+def test_counts_of_flags_agents_and_projects_and_flag_ranges_are_fine(db):
+    facts = facts_for(db, [{**AGENT, "command": "cat .env"}, {**AGENT, "command": "printenv"},
+                           {**AGENT, "command": "git push --force", "cwd": "/Users/dev/code/blog"}])
+    assert len(facts.flags) == 3
+    for note in ("There are 3 flags across 2 projects from 1 agent: [F1, F2, F3].",
+                 "Three things: [F1]-[F3].", "See [F1-F3]."):
+        assert digest.check_note(note, facts) == [], note
+
+
+def test_note_check_in_a_half_hour_time_zone(db, monkeypatch):
+    import time
+    monkeypatch.setenv("TZ", "Asia/Kolkata")
+    time.tzset()
+    try:
+        facts = _demo_facts(db)
+        problems = digest.check_note("[F1] `git push --force origin fix/x` and 14 tests failed.", facts)
+        assert any("number 14" in p for p in problems)
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+
+
+def test_header_shows_both_dates_when_the_window_crosses_midnight(db):
+    from datetime import datetime, timezone
+    facts = _demo_facts(db)
+    facts.start = datetime(2026, 10, 1, 16, 47, tzinfo=timezone.utc)
+    out = digest.render(facts, None, now=datetime(2026, 10, 2, 16, 47, tzinfo=timezone.utc))
+    assert " to " in out.splitlines()[0]
