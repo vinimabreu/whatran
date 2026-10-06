@@ -1,5 +1,7 @@
 # whatran
 
+[![tests](https://github.com/vinimabreu/whatran/actions/workflows/tests.yml/badge.svg)](https://github.com/vinimabreu/whatran/actions/workflows/tests.yml)
+
 What your coding agents ran in your terminal today, explained by a model that runs on your own machine.
 
 ![whatran on a made-up working day: two agents, eight flags, and a note from Gemma 4 running locally](assets/whatran.gif)
